@@ -145,8 +145,11 @@ class Step(object):
     failed = None
     related_outline = None
 
-    def __init__(self, sentence, remaining_lines, line=None, filename=None):
+    def __init__(self, sentence, remaining_lines, line=None, filename=None,
+                 tags=None):
+
         self.sentence = sentence
+        self.tags = tags or []
         self.original_sentence = sentence
         self._remaining_lines = remaining_lines
         keys, hashes, self.multiline = self._parse_remaining_lines(remaining_lines)
@@ -300,7 +303,7 @@ class Step(object):
             def elsewhere(step):
                 # actual step behavior, maybe.
 
-        This will raise the error of the first failing step (thus halting 
+        This will raise the error of the first failing step (thus halting
         execution of the step) if a subordinate step fails.
 
         """
@@ -421,6 +424,8 @@ class Step(object):
     def from_string(cls, string, with_file=None, original_string=None):
         """Creates a new step from string"""
         lines = strings.get_stripped_lines(string)
+        tags, lines = strings.steal_tags_from_lines(lines)
+
         sentence = lines.pop(0)
 
         line = None
@@ -430,7 +435,8 @@ class Step(object):
                     line = pline + 1
                     break
 
-        return cls(sentence, remaining_lines=lines, line=line, filename=with_file)
+        return cls(sentence, remaining_lines=lines, line=line,
+                   filename=with_file, tags=tags)
 
 class Scenario(object):
     """ Object that represents each scenario on feature files."""
@@ -438,12 +444,13 @@ class Scenario(object):
     indentation = 2
     table_indentation = indentation + 2
     def __init__(self, name, remaining_lines, keys, outlines, with_file=None,
-                 original_string=None, language=None):
+                 original_string=None, language=None, tags=None):
 
         if not language:
             language = language()
 
         self.name = name
+        self.tags = tags or []
         self.language = language
         self.steps = self._parse_remaining_lines(remaining_lines,
                                                  with_file,
@@ -614,8 +621,12 @@ class Scenario(object):
     @classmethod
     def from_string(new_scenario, string, with_file=None, original_string=None, language=None):
         """ Creates a new scenario from string"""
+
+        lines = strings.get_stripped_lines(string, ignore_lines_starting_with='#')
+        tags, lines = strings.steal_tags_from_lines(lines)
+
         # ignoring comments
-        string = "\n".join(strings.get_stripped_lines(string, ignore_lines_starting_with='#'))
+        string = "\n".join(lines)
 
         if not language:
             language = Language()
@@ -642,7 +653,8 @@ class Scenario(object):
             outlines=outlines,
             with_file=with_file,
             original_string=original_string,
-            language=language
+            language=language,
+            tags=tags
         )
 
         return scenario
@@ -651,12 +663,13 @@ class Feature(object):
     """ Object that represents a feature."""
     described_at = None
     def __init__(self, name, remaining_lines, with_file, original_string,
-                 language=None):
+                 language=None, tags=None):
 
         if not language:
             language = language()
 
         self.name = name
+        self.tags = tags or []
         self.language = language
 
         self.scenarios, self.description = self._parse_remaining_lines(
@@ -715,6 +728,7 @@ class Feature(object):
     def from_string(new_feature, string, with_file=None, language=None):
         """Creates a new feature from string"""
         lines = strings.get_stripped_lines(string, ignore_lines_starting_with='#')
+        tags, lines = strings.steal_tags_from_lines(lines)
         if not language:
             language = Language()
 
@@ -745,7 +759,8 @@ class Feature(object):
                               remaining_lines=lines,
                               with_file=with_file,
                               original_string=string,
-                              language=language)
+                              language=language,
+                              tags=tags)
         return feature
 
     @classmethod
@@ -762,7 +777,6 @@ class Feature(object):
         self.described_at = definition
 
     def _parse_remaining_lines(self, lines, original_string, with_file=None):
-
         joined = u"\n".join(lines[1:])
 
         # replacing occurrencies of Scenario Outline, with just "Scenario"
@@ -788,7 +802,6 @@ class Feature(object):
         )
 
         scenarios = [Scenario.from_string(s, **kw) for s in scenario_strings]
-
         return scenarios, description
 
     def run(self, scenarios=None, ignore_case=True):

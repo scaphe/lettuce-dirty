@@ -306,3 +306,43 @@ def test_comments():
     feature = Feature.from_string(FEATURE10)
 
     assert_equals(feature.max_length, 55)
+
+def test_feature_should_parse_many_tags():
+    u"feature should parse many tags"
+
+    feature = Feature.from_string('''
+    @ajax, @jquery, @style
+    Feature: Change the website style with ajax
+      @color, @background
+      Scenario: change the background color
+        Given the background color is "#FFFF99"
+        When I click on "change background"
+        And I fill the "rgb" field with "#F0F0F0"
+        Then I see a ajax loader
+        And the background color is "#F0F0F0"
+        And even if I refresh the page
+        The background color is "#F0F0F0"
+    ''')
+
+    assert_equals(
+        feature.name,
+        u'Change the website style with ajax'
+    )
+
+    assert_equals(feature.tags, ['ajax', 'jquery', 'style', 'color', 'background'])
+    assert_equals(len(feature.scenarios), 1, "It should have 1 scenario")
+
+    scenario = feature.scenarios[0]
+
+    expected_sentences = [
+        ur'Given the background color is "#FFFF99"',
+        ur'When I click on "change background"',
+        ur'And I fill the "rgb" field with "#F0F0F0"',
+        ur'Then I see a ajax loader',
+        ur'And the background color is "#F0F0F0"',
+        ur'And even if I refresh the page',
+        ur'The background color is "#F0F0F0"',
+    ]
+
+    for step, expected_sentence in zip(scenario.steps, expected_sentences):
+        assert_equals(step.sentence, expected_sentence)

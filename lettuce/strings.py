@@ -144,3 +144,37 @@ def parse_multiline(lines):
                 line = line[:-1]
             multilines.append(line)
     return u'\n'.join(multilines)
+
+def steal_tags_from_lines(lines):
+    """takes a list() of strings containing possible tags, and take
+    those strings from the list.
+
+    returns a tuple with two members:
+
+    a list of tags
+
+    and
+
+    a filtered version of the "lines" variable, without lines of tags)
+    """
+    regex = re.compile(ur'(^|\s+|[,])[@](?P<name>[\w_-]+)[\s,]*', re.U)
+    tags = []
+    if len(lines) < 2:
+        return [], lines
+
+    for possible_tag_line in lines:
+        found = regex.search(possible_tag_line)
+        if found:
+            lines.remove(possible_tag_line)
+
+            while found:
+                tagname = found.group('name')
+                tags.append(tagname)
+
+                possible_tag_line = possible_tag_line.replace("@" + tagname, '')
+                found = regex.search(possible_tag_line)
+
+    return tags, lines
+
+
+
