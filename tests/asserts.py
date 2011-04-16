@@ -51,7 +51,9 @@ def assert_lines_with_traceback(one, other):
     regex = re.compile('File "([^"]+)", line \d+, in.*')
 
     error = '%r should be in traceback line %r.\nFull output was:\n' + one
+    line_num = 0
     for line1, line2 in zip(lines_one, lines_other):
+        line_num += 1
         if regex.search(line1) and regex.search(line2):
             found = regex.search(line2)
 
@@ -60,15 +62,24 @@ def assert_lines_with_traceback(one, other):
             assert filename in line1, error % params
 
         else:
-            assert_unicode_equals(line1, line2)
+            line1_u = get_unicode(line1)
+            line2_u = get_unicode(line2)
+            if line1_u != line2_u:
+                raise AssertionError, 'Mismatch at line '+str(line_num)+' actual=['+str(line1_u)+'], expected=['+str(line2_u)+'], whole actual=\n'+str(one)+'\nwhole expected=\n'+str(other)
+            #assert_unicode_equals(line1, line2)
 
     assert_unicode_equals(len(lines_one), len(lines_other))
+
+def get_unicode(original):
+    if isinstance(original, basestring):
+        original = original.decode('utf-8')
+    return original
 
 def assert_unicode_equals(original, expected):
     if isinstance(original, basestring):
         original = original.decode('utf-8')
 
-    assert_equals(original, expected)
+    assert_equals(original, expected, 'Got ['+str(original)+'] but expected ['+str(expected)+"]")
 
 def assert_stderr(expected):
     string = sys.stderr.getvalue()

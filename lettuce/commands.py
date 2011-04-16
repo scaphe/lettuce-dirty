@@ -20,6 +20,8 @@ import sys
 import optparse
 
 import lettuce
+from lettuce.core import RunController
+
 
 def main(args=sys.argv[1:]):
     base_path = os.path.join(os.path.dirname(os.curdir), 'features')
@@ -37,6 +39,23 @@ def main(args=sys.argv[1:]):
                       dest="scenarios",
                       default=None,
                       help='Comma separated list of scenarios to run')
+
+    parser.add_option("--failed",
+                      action="store_true",
+                      dest="only_run_failed",
+                      default=False,
+                      help='Only re-run tests that failed last time')
+
+    parser.add_option("--syntax",
+                      action="store_true",
+                      dest="only_syntax_check",
+                      default=False,
+                      help='Only syntax check, do not actually run any tests (so quick)')
+
+    parser.add_option("--id-file",
+                      dest="id_file",
+                      default=".lettuceids",
+                      help='Filename to keep ids of tests that failed last time, default is .lettuceids, set to None to disable')
 
     parser.add_option("--with-xunit",
                       dest="enable_xunit",
@@ -60,11 +79,12 @@ def main(args=sys.argv[1:]):
     except ValueError:
         pass
 
-
+    run_controller = RunController(options.id_file, options.only_run_failed, options.only_syntax_check)
     runner = lettuce.Runner(base_path, scenarios=options.scenarios,
                             verbosity=options.verbosity,
                             enable_xunit=options.enable_xunit,
-                            xunit_filename=options.xunit_file)
+                            xunit_filename=options.xunit_file,
+                            run_controller = run_controller)
 
     result = runner.run()
     if not result or result.steps != result.steps_passed:

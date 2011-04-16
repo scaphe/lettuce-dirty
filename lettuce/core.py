@@ -18,6 +18,7 @@
 import re
 import codecs
 import unicodedata
+import pickle
 from copy import deepcopy
 from lettuce import strings
 from lettuce import languages
@@ -29,6 +30,9 @@ from lettuce.exceptions import NoDefinitionFound
 from lettuce.exceptions import LettuceSyntaxError
 
 fs = FileSystem()
+
+scenario_id_counter = 0
+debug_exceptions = False
 
 class HashList(list):
     __base_msg = 'The step "%s" have no table defined, so ' \
@@ -113,6 +117,8 @@ class StepDefinition(object):
             ret = self.function(self.step, *args, **kw)
             self.step.passed = True
         except Exception, e:
+            if debug_exceptions:
+                print "Failed with "+str(e)
             self.step.failed = True
             self.step.why = ReasonToFail(e)
             raise e
@@ -188,6 +194,7 @@ class Step(object):
         self.described_at = StepDescription(line, filename)
 
         self.proposed_method_name, self.proposed_sentence = self.propose_definition()
+        self.run_controller = None
 
     def propose_definition(self):
 
@@ -382,7 +389,7 @@ class Step(object):
         return True
 
     @staticmethod
-    def run_all(steps, outline = None, run_callbacks = False, ignore_case = True):
+    def run_all(steps, given_run_controller=None, outline = None, run_callbacks = False, ignore_case = True):
         """Runs each step in the given list of steps.
 
         Returns a tuple of five lists:
@@ -400,6 +407,8 @@ class Step(object):
         reasons_to_fail = []
 
         for step in steps:
+            if given_run_controller != None:
+                step.run_controller = given_run_controller
             if outline:
                 step = step.solve_and_clone(outline)
 
@@ -409,7 +418,7 @@ class Step(object):
                 if run_callbacks:
                     call_hook('before_each', 'step', step)
 
-                if not steps_failed and not steps_undefined:
+                if not steps_failed and not steps_undefined and (step.run_controller == None or step.run_controller.is_to_run_step(step)):
                     step.run(ignore_case)
                     steps_passed.append(step)
 
@@ -417,6 +426,8 @@ class Step(object):
                 steps_undefined.append(e.step)
 
             except Exception, e:
+                if debug_exceptions:
+                    print "Failed with "+str(e)
                 steps_failed.append(step)
                 reasons_to_fail.append(step.why)
 
@@ -479,6 +490,72 @@ class Step(object):
                     break
 
         return cls(sentence, remaining_lines=lines, line=line, filename=with_file)
+
+class RunController(object):
+    def __init__(self, id_filename=None, only_run_failed=False, only_syntax_check=False):
+        if "None" == id_filename:
+            self.id_filename = None
+        else:
+            self.id_filename = id_filename
+        self.only_run_failed = only_run_failed
+        self.only_syntax_check = only_syntax_check
+        self.previous_results = None
+        if only_run_failed:
+            # Load up file which has list of all failed tests in it, if file is not there or empty then run all tests again
+            import pickle
+            f = open(self.id_filename, "r")   # Dont use with syntax as stops older versions of python from working
+            try:
+                self.previous_results = pickle.load(f)
+            finally:
+                f.close()
+
+    def is_to_run_step(self, step):
+        if self.only_syntax_check:
+            return False
+        return True
+
+    def is_to_run_scenario(self, scenario, scenario_id_counter):
+        if self.only_run_failed:
+            if self.previous_results != None and scenario_id_counter in self.previous_results:
+                prev_scenario_result_summary = self.previous_results[scenario_id_counter]
+                if "Failed" != prev_scenario_result_summary.status:
+                    print "Skipping"
+                    return False
+                else:
+                    print "Previously step "+str(scenario_id_counter)+" failed, so re-running"
+        return True
+
+    def finished(self, totals):
+        if self.only_syntax_check:
+            # Display all the steps that had no match, don't update --failed file
+            if totals.undefined_steps:
+                print "\nSyntax errors:"
+                for step in totals.undefined_steps:
+                    print step.represent_string(step.original_sentence).rstrip() + " (undefined)\n"
+            else:
+                print "\nSyntax all ok"
+            return
+
+        if not self.id_filename:
+            return
+        # Make a map of id->ScenarioResultSummary
+        results = {}
+        for feature_result in totals.feature_results:
+            for scenario_result in feature_result.scenario_results:
+                status = "Passed"
+                if scenario_result.not_run:
+                    status = "Not-run"
+                elif not scenario_result.passed:
+                    status = "Failed"
+                # In future we could add status of skipped or other, for tags
+                results[scenario_result.id] = ScenarioResultSummary(scenario_result.id, status)
+        # Write status map to file
+        f = open(self.id_filename, "w")   # Dont use with syntax as stops older versions of python from working
+        try:
+            pickle.dump(results, f)
+        finally:
+            f.close()
+
 
 class Scenario(object):
     """ Object that represents each scenario on feature files."""
@@ -578,15 +655,28 @@ class Scenario(object):
     def failed(self):
         return any([step.failed for step in self.steps])
 
-    def run(self, ignore_case):
+    def run(self, run_controller, ignore_case):
         """Runs a scenario, running each of its steps. Also call
         before_each and after_each callbacks for steps and scenario"""
 
         results = []
         call_hook('before_each', 'scenario', self)
 
-        def run_scenario(almost_self, order=-1, outline=None, run_callbacks=False):
-            all_steps, steps_passed, steps_failed, steps_undefined, reasons_to_fail = Step.run_all(self.steps, outline, run_callbacks, ignore_case)
+        def run_scenario(almost_self, run_controller, order=-1, outline=None, run_callbacks=False):
+            global scenario_id_counter
+            scenario_id_counter += 1
+            if not run_controller.is_to_run_scenario(self, scenario_id_counter):
+                return ScenarioResult(
+                    self,
+                    [],
+                    [],
+                    [],
+                    [],
+                    True,
+                    scenario_id_counter
+                    )
+
+            all_steps, steps_passed, steps_failed, steps_undefined, reasons_to_fail = Step.run_all(self.steps, run_controller, outline, run_callbacks, ignore_case)
             skip = lambda x: x not in steps_passed and x not in steps_undefined and x not in steps_failed
 
             steps_skipped = filter(skip, all_steps)
@@ -600,16 +690,18 @@ class Scenario(object):
                 steps_passed,
                 steps_failed,
                 steps_skipped,
-                steps_undefined
+                steps_undefined,
+                False,
+                scenario_id_counter
             )
 
         if self.outlines:
             first = True
             for index, outline in enumerate(self.outlines):
-                results.append(run_scenario(self, index, outline, run_callbacks=first))
+                results.append(run_scenario(self, run_controller, index, outline, run_callbacks=first))
                 first = False
         else:
-            results.append(run_scenario(self, run_callbacks=True))
+            results.append(run_scenario(self, run_controller, run_callbacks=True))
 
         call_hook('after_each', 'scenario', self)
         return results
@@ -835,7 +927,7 @@ class Feature(object):
 
         return scenarios, description
 
-    def run(self, scenarios=None, ignore_case=True):
+    def run(self, run_controller=RunController(), scenarios=None, ignore_case=True):
         call_hook('before_each', 'feature', self)
         scenarios_ran = []
 
@@ -849,7 +941,7 @@ class Feature(object):
             if scenarios_to_run and (index + 1) not in scenarios_to_run:
                 continue
 
-            scenarios_ran.extend(scenario.run(ignore_case))
+            scenarios_ran.extend(scenario.run(run_controller, ignore_case))
 
         call_hook('after_each', 'feature', self)
         return FeatureResult(self, *scenarios_ran)
@@ -867,7 +959,7 @@ class FeatureResult(object):
 class ScenarioResult(object):
     """Object that holds results of each step ran from within a scenario"""
     def __init__(self, scenario, steps_passed, steps_failed, steps_skipped,
-                 steps_undefined):
+                 steps_undefined, not_run, scenario_id):
 
         self.scenario = scenario
 
@@ -875,13 +967,24 @@ class ScenarioResult(object):
         self.steps_failed = steps_failed
         self.steps_skipped = steps_skipped
         self.steps_undefined = steps_undefined
+        self.not_run = not_run
+        self.id = scenario_id
 
         all_lists = [steps_passed + steps_skipped + steps_undefined + steps_failed]
         self.total_steps = sum(map(len, all_lists))
 
     @property
     def passed(self):
-        return self.total_steps is len(self.steps_passed)
+        return not self.not_run and (self.total_steps is len(self.steps_passed))
+
+    @property
+    def failed(self):
+        return len(self.steps_failed) > 0
+
+class ScenarioResultSummary(object):
+    def __init__(self, scenario_id, status):
+        self.id = scenario_id
+        self.status = status
 
 class TotalResult(object):
     def __init__(self, feature_results):
@@ -890,8 +993,8 @@ class TotalResult(object):
         self.steps_passed = 0
         self.steps_failed = 0
         self.steps_skipped = 0
-        self.steps_undefined= 0
-        self._proposed_definitions = []
+        self.steps_undefined = 0
+        self.undefined_steps = []
         self.steps = 0
         for feature_result in self.feature_results:
             for scenario_result in feature_result.scenario_results:
@@ -901,12 +1004,12 @@ class TotalResult(object):
                 self.steps_skipped += len(scenario_result.steps_skipped)
                 self.steps_undefined += len(scenario_result.steps_undefined)
                 self.steps += scenario_result.total_steps
-                self._proposed_definitions.extend(scenario_result.steps_undefined)
+                self.undefined_steps.extend(scenario_result.steps_undefined)
 
 
     def _filter_proposed_definitions(self):
         sentences = []
-        for step in self._proposed_definitions:
+        for step in self.undefined_steps:
             if step.proposed_sentence not in sentences:
                 sentences.append(step.proposed_sentence)
                 yield step
@@ -924,9 +1027,18 @@ class TotalResult(object):
         return len([result for result in self.feature_results if result.passed])
 
     @property
+    def scenarios_not_run(self):
+        return len([result for result in self.scenario_results if result.not_run])
+
+    @property
     def scenarios_ran(self):
         return len(self.scenario_results)
 
     @property
     def scenarios_passed(self):
         return len([result for result in self.scenario_results if result.passed])
+
+    @property
+    def scenarios_failed(self):
+        return len([result for result in self.scenario_results if result.failed])
+

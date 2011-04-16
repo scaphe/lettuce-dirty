@@ -460,7 +460,7 @@ def test_output_with_failed_colorless_with_table():
         "    And this one does not even has definition # tests/functional/output_features/failed_table/failed_table.feature:12 (undefined)\n"
         "\n"
         "1 feature (0 passed)\n"
-        "1 scenario (0 passed)\n"
+        "1 scenario (1 failed, 0 passed)\n"
         "5 steps (1 failed, 2 skipped, 1 undefined, 1 passed)\n"
         "\n"
         "You can implement step definitions for undefined steps with these snippets:\n"
@@ -631,7 +631,7 @@ def test_output_with_failful_outline_colorless():
         '    | foo      | foo-bar  | foo@bar.com    | Welcome, Foo  |\n'
         '\n'
         '1 feature (0 passed)\n'
-        '3 scenarios (2 passed)\n'
+        '3 scenarios (1 failed, 2 passed)\n'
         '24 steps (1 failed, 4 skipped, 19 passed)\n' % {
             'lettuce_core_file': lettuce_path('core.py'),
             'step_file': abspath(lettuce_path('..', 'tests', 'functional', 'output_features', 'fail_outline', 'fail_outline_steps.py')),

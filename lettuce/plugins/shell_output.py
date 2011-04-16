@@ -96,12 +96,13 @@ def print_end(total):
     )
 
     word = total.scenarios_ran > 1 and "scenarios" or "scenario"
-    wrt("%d %s (%d passed)\n" % (
-        total.scenarios_ran,
-        word,
-        total.scenarios_passed
-        )
-    )
+    wrt("%d %s (" % (total.scenarios_ran, word))
+    if total.scenarios_failed:
+        wrt("%d failed, " % (total.scenarios_failed))
+    wrt("%d passed" % (total.scenarios_passed))
+    if total.scenarios_not_run:
+        wrt(", %d not run" % (total.scenarios_not_run))
+    wrt(")\n")
 
     steps_details = []
     for kind in ("failed","skipped",  "undefined"):

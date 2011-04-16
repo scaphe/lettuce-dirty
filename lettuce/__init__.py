@@ -24,7 +24,7 @@ from datetime import datetime
 
 from lettuce import fs
 
-from lettuce.core import Feature, TotalResult
+from lettuce.core import Feature, TotalResult, RunController
 
 from lettuce.terrain import after
 from lettuce.terrain import before
@@ -61,7 +61,8 @@ class Runner(object):
     features and step definitions on there.
     """
     def __init__(self, base_path, scenarios=None, verbosity=0,
-                 enable_xunit=False, xunit_filename=None):
+                 enable_xunit=False, xunit_filename=None,
+                 run_controller=RunController()):
         """ lettuce.Runner will try to find a terrain.py file and
         import it from within `base_path`
         """
@@ -75,6 +76,7 @@ class Runner(object):
         self.loader = fs.FeatureLoader(base_path)
         self.verbosity = verbosity
         self.scenarios = scenarios and map(int, scenarios.split(",")) or None
+        self.run_controller = run_controller
 
         sys.path.remove(base_path)
 
@@ -100,6 +102,7 @@ class Runner(object):
         """ Find and load step definitions, and them find and load
         features under `base_path` specified on constructor
         """
+
         started_at = datetime.now()
         try:
             self.loader.find_and_load_step_definitions()
@@ -123,16 +126,21 @@ class Runner(object):
         try:
             for filename in features_files:
                 feature = Feature.from_file(filename)
-                results.append(feature.run(self.scenarios))
+                results.append(feature.run(self.run_controller, self.scenarios))
         except exceptions.LettuceSyntaxError, e:
             sys.stderr.write(e.msg)
             failed = True
+        except Exception, e:
+            print "Died with "+str(e)
+            sys.stderr.write(exceptions.traceback.format_exc(e))
 
         finally:
             if failed:
                 raise SystemExit(2)
 
             total = TotalResult(results)
+
+            self.run_controller.finished(total)
 
             call_hook('after', 'all', total)
 
