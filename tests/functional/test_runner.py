@@ -21,7 +21,7 @@ from StringIO import StringIO
 from os.path import dirname, join, abspath
 from nose.tools import assert_equals, with_setup, assert_raises
 from lettuce.fs import FeatureLoader
-from lettuce.core import Feature, fs, StepDefinition
+from lettuce.core import Feature, fs, StepDefinition, RunController, ScenarioResultSummary
 from lettuce.terrain import world
 from lettuce import Runner
 
@@ -38,6 +38,7 @@ current_dir = abspath(dirname(__file__))
 lettuce_dir = abspath(dirname(lettuce.__file__))
 ojoin = lambda *x: join(current_dir, 'output_features', *x)
 sjoin = lambda *x: join(current_dir, 'syntax_features', *x)
+fjoin = lambda *x: join(current_dir, 'failed_features', *x)
 lettuce_path = lambda *x: fs.relpath(join(lettuce_dir, *x))
 
 call_line = StepDefinition.__call__.im_func.func_code.co_firstlineno + 5
@@ -47,6 +48,9 @@ def feature_name(name):
 
 def syntax_feature_name(name):
     return sjoin(name, "%s.feature" % name)
+
+def failed_feature_name(name):
+    return fjoin(name, "%s.feature" % name)
 
 @with_setup(prepare_stderr)
 def test_try_to_import_terrain():
@@ -1045,7 +1049,6 @@ def test_commented_scenario():
     )
 
 
-#with_setup(prepare_stderr)
 @with_setup(prepare_stdout)
 def test_blank_step_hash_value():
     "syntax checking: Blank in step hash column = empty string"
@@ -1073,3 +1076,207 @@ def test_blank_step_hash_value():
         "1 scenario (1 passed)\n"
         "4 steps (4 passed)\n"
     )
+
+class MockPrevResultPersister(object):
+    def __init__(self, initial_results_list):
+        self.initial_results_list = initial_results_list
+        self.final_results_list = None
+    def read_previous_results(self):
+        return self.initial_results_list
+    def write_results(self, results):
+        self.final_results_list = results 
+
+@with_setup(prepare_stdout)
+def test_syntax_check_only():
+    "syntax checking: Show a list of all steps that do not have matching functions, don't actually run any steps"
+
+    from lettuce import step
+
+    @step('matching step')
+    def append_2_more(step):
+        raise AssertionError('should not be run')
+
+    filename = syntax_feature_name('syntax_check_only')
+    # Verbosity of zero so only get syntax output
+    persister = MockPrevResultPersister([])
+    run_controller = RunController(persister, only_run_failed=False, only_syntax_check=True)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+
+    assert_stdout_lines(
+        "\n"
+        "Syntax errors:\n"
+        "    When I do something unrecognised      # tests/functional/syntax_features/syntax_check_only/syntax_check_only.feature:5 (undefined)\n"
+        "    Then the syntax check should complain # tests/functional/syntax_features/syntax_check_only/syntax_check_only.feature:6 (undefined)\n"
+    )
+
+@with_setup(prepare_stdout)
+def test_gather_failed_test_ids():
+    "failed test checking: Test that gathers details on which tests (scenarios) have failed"
+
+    from lettuce import step
+
+    @step('working step')
+    def append_2_more(step):
+        pass
+
+    @step('breaking step')
+    def append_2_more(step):
+        raise AssertionError('bang')
+
+    filename = failed_feature_name('some_failing_scenarios')
+    # Verbosity of zero so only get syntax output
+    persister = MockPrevResultPersister(None)
+    # Initial run, should run all steps initially and we should end up with which steps failed
+    run_controller = RunController(persister, only_run_failed=True, only_syntax_check=False)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Check we caught and stored which steps failed and which passed
+    res = persister.final_results_list
+    assert_equals(len(res), 5)
+    assert_equals(res[1].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[2].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[3].status, ScenarioResultSummary.PASSED)
+    assert_equals(res[4].status, ScenarioResultSummary.PASSED)
+    assert_equals(res[5].status, ScenarioResultSummary.FAILED)
+
+@with_setup(prepare_stdout)
+def test_gather_second_pass_failed_test_ids():
+    "failed test checking: Test that gathers not_run and which tests (scenarios) have failed on second run"
+
+    from lettuce import step
+
+    @step('working step')
+    def append_2_more(step):
+        pass
+
+    @step('breaking step')
+    def append_2_more(step):
+        raise AssertionError('bang')
+
+    filename = failed_feature_name('some_failing_scenarios')
+    # Verbosity of zero so only get syntax output
+    scenarioSummaries={}
+    scenarioSummaries[1] = ScenarioResultSummary(1, ScenarioResultSummary.FAILED)
+    scenarioSummaries[2] = ScenarioResultSummary(2, ScenarioResultSummary.FAILED)
+    scenarioSummaries[3] = ScenarioResultSummary(3, ScenarioResultSummary.PASSED)
+    scenarioSummaries[4] = ScenarioResultSummary(4, ScenarioResultSummary.PASSED)
+    scenarioSummaries[5] = ScenarioResultSummary(5, ScenarioResultSummary.FAILED)
+    persister = MockPrevResultPersister(scenarioSummaries)
+    # Initial run, should run all steps initially and we should end up with which steps failed
+    run_controller = RunController(persister, only_run_failed=True, only_syntax_check=False)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Check we caught and stored which steps failed and which passed
+    res = persister.final_results_list
+    assert_equals(len(res), 5)
+    assert_equals(res[1].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[2].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[3].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[4].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[5].status, ScenarioResultSummary.FAILED)
+
+@with_setup(prepare_stdout)
+def test_gather_third_pass_failed_test_ids():
+    "failed test checking: Test that gathers not_run and which tests (scenarios) have failed on second run"
+
+    from lettuce import step
+
+    @step('working step')
+    def append_2_more(step):
+        pass
+
+    @step('breaking step')
+    def append_2_more(step):
+        raise AssertionError('bang')
+
+    filename = failed_feature_name('some_failing_scenarios')
+    # Verbosity of zero so only get syntax output
+    scenarioSummaries={}
+    scenarioSummaries[1] = ScenarioResultSummary(1, ScenarioResultSummary.FAILED)
+    scenarioSummaries[2] = ScenarioResultSummary(2, ScenarioResultSummary.FAILED)
+    scenarioSummaries[3] = ScenarioResultSummary(3, ScenarioResultSummary.NOT_RUN)
+    scenarioSummaries[4] = ScenarioResultSummary(4, ScenarioResultSummary.NOT_RUN)
+    scenarioSummaries[5] = ScenarioResultSummary(5, ScenarioResultSummary.FAILED)
+    persister = MockPrevResultPersister(scenarioSummaries)
+    run_controller = RunController(persister, only_run_failed=True, only_syntax_check=False)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Check we caught and stored which steps failed and which passed
+    res = persister.final_results_list
+    assert_equals(len(res), 5)
+    assert_equals(res[1].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[2].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[3].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[4].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[5].status, ScenarioResultSummary.FAILED)
+
+@with_setup(prepare_stdout)
+def test_scenario_outlines_with_failed_only():
+    "failed test checking: Test that works with scenario outlines if only some outlines fail"
+
+    from lettuce import step
+
+    @step('I have entered')
+    def append_2_more(step):
+        pass
+    
+    @step('result should be')
+    def append_2_more(step):
+        pass
+
+    @step('When I press add')
+    def append_2_more(step):
+        pass
+
+    filename = failed_feature_name('failing_scenario_outlines')
+    # Verbosity of zero so only get syntax output
+    persister = MockPrevResultPersister(None)
+    # Initial run, should run all steps initially and we should end up with which steps failed
+    run_controller = RunController(persister, only_run_failed=True, only_syntax_check=False)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Check we caught and stored which steps failed and which passed
+    res = persister.final_results_list
+    assert_equals(len(res), 4)
+    assert_equals(res[1].status, ScenarioResultSummary.PASSED)
+    assert_equals(res[2].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[3].status, ScenarioResultSummary.PASSED)
+    assert_equals(res[4].status, ScenarioResultSummary.FAILED)
+
+@with_setup(prepare_stdout)
+def test_scenario_outlines_with_failed_only_second_run():
+    "failed test checking: Test that works with scenario outlines if only some outlines fail - second run"
+
+    from lettuce import step
+
+    @step('I have entered')
+    def append_2_more(step):
+        pass
+    
+    @step('result should be')
+    def append_2_more(step):
+        pass
+
+    @step('When I press add')
+    def append_2_more(step):
+        pass
+
+    filename = failed_feature_name('failing_scenario_outlines')
+    # Verbosity of zero so only get syntax output
+    scenarioSummaries={}
+    scenarioSummaries[1] = ScenarioResultSummary(1, ScenarioResultSummary.PASSED)
+    scenarioSummaries[2] = ScenarioResultSummary(2, ScenarioResultSummary.FAILED)
+    scenarioSummaries[3] = ScenarioResultSummary(3, ScenarioResultSummary.PASSED)
+    scenarioSummaries[4] = ScenarioResultSummary(4, ScenarioResultSummary.FAILED)
+    persister = MockPrevResultPersister(scenarioSummaries)
+    run_controller = RunController(persister, only_run_failed=True, only_syntax_check=False)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Check we caught and stored which steps failed and which passed
+    res = persister.final_results_list
+    assert_equals(len(res), 4)
+    assert_equals(res[1].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[2].status, ScenarioResultSummary.FAILED)
+    assert_equals(res[3].status, ScenarioResultSummary.NOT_RUN)
+    assert_equals(res[4].status, ScenarioResultSummary.FAILED)

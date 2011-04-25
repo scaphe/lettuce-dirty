@@ -15,10 +15,14 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import os
+import sys
 import logging
 from lettuce import core
 from lettuce.terrain import after
 from lettuce.terrain import before
+
+def wrt(what):
+    sys.stdout.write(what.encode('utf-8'))
 
 @before.each_step
 def print_step_running(step):
@@ -64,6 +68,14 @@ def print_end(total):
         total.steps_passed
         )
     )
+            
+    if total.only_syntax_check:
+        if total.undefined_steps:
+            wrt("\nSyntax errors:\n")
+            for step in total.undefined_steps:
+                wrt(step.represent_string(step.original_sentence).rstrip() + " (undefined)\n")
+        else:
+            wrt("\nSyntax all ok\n")
 
 def print_no_features_found(where):
     where = core.fs.relpath(where)

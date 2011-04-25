@@ -138,7 +138,7 @@ class Runner(object):
             if failed:
                 raise SystemExit(2)
 
-            total = TotalResult(results)
+            total = TotalResult(results, self.run_controller.only_syntax_check)
 
             self.run_controller.finished(total)
 

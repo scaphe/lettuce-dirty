@@ -20,7 +20,7 @@ import sys
 import optparse
 
 import lettuce
-from lettuce.core import RunController
+from lettuce.core import RunController, PrevResultPersister
 
 
 def main(args=sys.argv[1:]):
@@ -79,7 +79,11 @@ def main(args=sys.argv[1:]):
     except ValueError:
         pass
 
-    run_controller = RunController(options.id_file, options.only_run_failed, options.only_syntax_check)
+    filename = options.id_file
+    if "None" == filename:  # Else there is no way to disable writing ids to file
+        filename = None
+    persister = PrevResultPersister(filename)
+    run_controller = RunController(persister, options.only_run_failed, options.only_syntax_check)
     runner = lettuce.Runner(base_path, scenarios=options.scenarios,
                             verbosity=options.verbosity,
                             enable_xunit=options.enable_xunit,

@@ -131,6 +131,15 @@ def print_end(total):
             wrt("@step(u'%s')\n" % step.proposed_sentence)
             wrt("def %s:\n" % method_name)
             wrt("    assert False, 'This step must be implemented'\n")
+            
+    if total.only_syntax_check:
+        if total.undefined_steps:
+            wrt("\nSyntax errors:\n")
+            for step in total.undefined_steps:
+                wrt(step.represent_string(step.original_sentence).rstrip() + " (undefined)\n")
+        else:
+            wrt("\nSyntax all ok\n")
+
 
 def print_no_features_found(where):
     where = core.fs.relpath(where)

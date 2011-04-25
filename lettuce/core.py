@@ -31,7 +31,6 @@ from lettuce.exceptions import LettuceSyntaxError
 
 fs = FileSystem()
 
-scenario_id_counter = 0
 debug_exceptions = False
 
 class HashList(list):
@@ -491,23 +490,42 @@ class Step(object):
 
         return cls(sentence, remaining_lines=lines, line=line, filename=with_file)
 
+class PrevResultPersister(object):
+    def __init__(self, id_filename=None):
+        self.id_filename = id_filename
+        
+    def read_previous_results(self):
+        # Load up file which has list of all failed tests in it, if file is not there or empty then run all tests again
+        f = open(self.id_filename, "r")   # Dont use with syntax as stops older versions of python from working
+        try:
+            return pickle.load(f)
+        finally:
+            f.close()
+        return None
+        
+    def write_results(self, results):
+        # Write status map to file
+        f = open(self.id_filename, "w")   # Dont use with syntax as stops older versions of python from working
+        try:
+            pickle.dump(results, f)
+        finally:
+            f.close()
+        
 class RunController(object):
-    def __init__(self, id_filename=None, only_run_failed=False, only_syntax_check=False):
-        if "None" == id_filename:
-            self.id_filename = None
-        else:
-            self.id_filename = id_filename
+    def __init__(self, prev_result_persister=None, only_run_failed=False, only_syntax_check=False):
+        self.scenario_id_counter = 0
         self.only_run_failed = only_run_failed
         self.only_syntax_check = only_syntax_check
-        self.previous_results = None
+        self.prev_result_persister = prev_result_persister
         if only_run_failed:
-            # Load up file which has list of all failed tests in it, if file is not there or empty then run all tests again
-            import pickle
-            f = open(self.id_filename, "r")   # Dont use with syntax as stops older versions of python from working
-            try:
-                self.previous_results = pickle.load(f)
-            finally:
-                f.close()
+            assert prev_result_persister!=None, "Must have persister if running only failed"
+            self.previous_results = prev_result_persister.read_previous_results()
+        else:
+            self.previous_results = None
+
+    def get_next_scenario_id(self):
+        self.scenario_id_counter += 1
+        return self.scenario_id_counter
 
     def is_to_run_step(self, step):
         if self.only_syntax_check:
@@ -518,7 +536,7 @@ class RunController(object):
         if self.only_run_failed:
             if self.previous_results != None and scenario_id_counter in self.previous_results:
                 prev_scenario_result_summary = self.previous_results[scenario_id_counter]
-                if "Failed" != prev_scenario_result_summary.status:
+                if ScenarioResultSummary.FAILED != prev_scenario_result_summary.status:
                     print "Skipping"
                     return False
                 else:
@@ -526,35 +544,20 @@ class RunController(object):
         return True
 
     def finished(self, totals):
-        if self.only_syntax_check:
-            # Display all the steps that had no match, don't update --failed file
-            if totals.undefined_steps:
-                print "\nSyntax errors:"
-                for step in totals.undefined_steps:
-                    print step.represent_string(step.original_sentence).rstrip() + " (undefined)\n"
-            else:
-                print "\nSyntax all ok"
-            return
-
-        if not self.id_filename:
+        if not self.prev_result_persister:
             return
         # Make a map of id->ScenarioResultSummary
         results = {}
         for feature_result in totals.feature_results:
             for scenario_result in feature_result.scenario_results:
-                status = "Passed"
+                status = ScenarioResultSummary.PASSED
                 if scenario_result.not_run:
-                    status = "Not-run"
+                    status = ScenarioResultSummary.NOT_RUN
                 elif not scenario_result.passed:
-                    status = "Failed"
+                    status = ScenarioResultSummary.FAILED
                 # In future we could add status of skipped or other, for tags
                 results[scenario_result.id] = ScenarioResultSummary(scenario_result.id, status)
-        # Write status map to file
-        f = open(self.id_filename, "w")   # Dont use with syntax as stops older versions of python from working
-        try:
-            pickle.dump(results, f)
-        finally:
-            f.close()
+        self.prev_result_persister.write_results(results)
 
 
 class Scenario(object):
@@ -663,18 +666,20 @@ class Scenario(object):
         call_hook('before_each', 'scenario', self)
 
         def run_scenario(almost_self, run_controller, order=-1, outline=None, run_callbacks=False):
-            global scenario_id_counter
-            scenario_id_counter += 1
-            if not run_controller.is_to_run_scenario(self, scenario_id_counter):
-                return ScenarioResult(
-                    self,
-                    [],
-                    [],
-                    [],
-                    [],
-                    True,
-                    scenario_id_counter
-                    )
+            if run_controller:
+                this_scenario_id = run_controller.get_next_scenario_id()
+                if not run_controller.is_to_run_scenario(self, this_scenario_id):
+                    return ScenarioResult(
+                        self,
+                        [],
+                        [],
+                        [],
+                        [],
+                        True,
+                        this_scenario_id
+                        )
+            else:
+                this_scenario_id = -1
 
             all_steps, steps_passed, steps_failed, steps_undefined, reasons_to_fail = Step.run_all(self.steps, run_controller, outline, run_callbacks, ignore_case)
             skip = lambda x: x not in steps_passed and x not in steps_undefined and x not in steps_failed
@@ -692,7 +697,7 @@ class Scenario(object):
                 steps_skipped,
                 steps_undefined,
                 False,
-                scenario_id_counter
+                this_scenario_id
             )
 
         if self.outlines:
@@ -901,7 +906,7 @@ class Feature(object):
 
         joined = u"\n".join(lines[1:])
 
-        # replacing occurrencies of Scenario Outline, with just "Scenario"
+        # replacing occurrences of Scenario Outline, with just "Scenario"
         scenario_prefix = u'%s:' % self.language.first_of_scenario
         regex = re.compile(u"%s:\s" % self.language.scenario_separator, re.U | re.I)
         joined = regex.sub(scenario_prefix, joined)
@@ -927,7 +932,7 @@ class Feature(object):
 
         return scenarios, description
 
-    def run(self, run_controller=RunController(), scenarios=None, ignore_case=True):
+    def run(self, run_controller=None, scenarios=None, ignore_case=True):
         call_hook('before_each', 'feature', self)
         scenarios_ran = []
 
@@ -982,12 +987,15 @@ class ScenarioResult(object):
         return len(self.steps_failed) > 0
 
 class ScenarioResultSummary(object):
+    PASSED=1
+    FAILED=2
+    NOT_RUN=3
     def __init__(self, scenario_id, status):
         self.id = scenario_id
         self.status = status
 
 class TotalResult(object):
-    def __init__(self, feature_results):
+    def __init__(self, feature_results, only_syntax_check):
         self.feature_results = feature_results
         self.scenario_results = []
         self.steps_passed = 0
@@ -996,6 +1004,7 @@ class TotalResult(object):
         self.steps_undefined = 0
         self.undefined_steps = []
         self.steps = 0
+        self.only_syntax_check = only_syntax_check
         for feature_result in self.feature_results:
             for scenario_result in feature_result.scenario_results:
                 self.scenario_results.append(scenario_result)
