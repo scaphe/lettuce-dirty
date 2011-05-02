@@ -57,6 +57,32 @@ Yeah, guess what ?
 
 This command will run the scenarios 3, 5 and 9 of all feature files living on ***myproj/features*** folder
 
+running only previously failed tests
+---------------------------------------------
+
+If you want to run only tests that failed last time you can used the --failed option
+
+.. highlight:: bash
+
+::
+
+   user@machine:~/projects/myproj$ lettuce --failed
+
+Now, only tests that failed on the previous run will be run, all others will be skipped
+ 
+
+syntax checking step files without running tests
+---------------------------------------------------
+
+If you want to syntax check your step files (ensure they will all match some step) but not actually run any (so is very quick) use
+
+.. highlight:: bash
+
+::
+
+   user@machine:~/projects/myproj$ lettuce --syntax
+
+
 verbosity levels
 ----------------
 
