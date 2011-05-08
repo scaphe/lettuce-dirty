@@ -48,7 +48,6 @@ I have a string like so:
   """
 '''.strip()
 
-
 INVALID_MULTI_LINE = '''
   """
   invalid one...
@@ -168,12 +167,13 @@ def test_multiline_is_part_of_previous_step():
     "It should correctly parse a multi-line string as part of the preceding step"
     lines = strings.get_stripped_lines(MULTI_LINE)
     steps = Step.many_from_lines(lines)
-    print steps
+
     assert_equals(len(steps), 1)
     assert isinstance(steps[0], Step)
     assert_equals(steps[0].sentence, 'I have a string like so:')
 
 def test_multiline_is_parsed():
+    "Lettuce should recognize a multiline step"
     step = Step.from_string(MULTI_LINE)
     assert_equals(step.sentence, 'I have a string like so:')
     assert_equals(step.multiline, u"""This is line one
@@ -184,6 +184,7 @@ with spaces at the beginning""")
 
 
 def test_multiline_with_whitespace():
+    "Lettuce should consider multiline steps with spaces"
     step = Step.from_string(MULTI_LINE_WHITESPACE)
     assert_equals(step.sentence, 'I have a string like so:')
     assert_equals(step.multiline, u"""This is line one
@@ -275,4 +276,38 @@ def test_handy_function_for_table_members_fail_giving_assertionerror():
     assert failed, 'it should fail'
 
 
+def test_step_with_one_tag():
+    "Lettuce should support a tag in a step"
+    step = Step.from_string(MULTI_LINE_WHITESPACE)
+    assert_equals(step.sentence, 'I have a string like so:')
+    assert_equals(step.multiline, u"""This is line one
+and this is line two
+and this is line three
+  and this is line four,
 
+  with spaces at the beginning
+and spaces at the end   """)
+
+def test_step_should_parse_one_tag():
+    u"step should parse one tag"
+
+    step = Step.from_string('''
+    @headless
+    Given I need no javascript
+    ''')
+    assert_equals(step.sentence, 'Given I need no javascript')
+    assert_equals(step.tags, ['headless'])
+
+def test_step_should_parse_many_tags():
+    u"step should parse many tags"
+
+    step = Step.from_string('''
+    @nice, @good,@bad,  @evil, @regex
+    Given my email is "gabriel@lettuce.it"
+    ''')
+
+    assert_equals(
+        step.sentence,
+        'Given my email is "gabriel@lettuce.it"'
+    )
+    assert_equals(step.tags, ['nice', 'good', 'bad', 'evil', 'regex'])

@@ -431,3 +431,29 @@ def test_commented_scenarios():
     scenario = Scenario.from_string(COMMENTED_SCENARIO)
     assert_equals(scenario.name, u'Adding some students to my university database')
     assert_equals(len(scenario.steps), 4)
+
+def test_scenario_should_parse_many_tags():
+    u"scenario should parse many tags"
+
+    scenario = Scenario.from_string('''
+    @nojs @raw
+    Scenario: do a simple post without needing javascript
+      Given I fill the field "name" with "John"
+      And the field "email" with "john@doe.com"
+    ''')
+
+    assert_equals(
+        scenario.name,
+        u'do a simple post without needing javascript'
+    )
+    assert_equals(scenario.tags, ['nojs', 'raw'])
+    assert_equals(len(scenario.steps), 2, "It should have 2 steps")
+
+    expected_sentences = [
+        ur'Given I fill the field "name" with "John"',
+        ur'And the field "email" with "john@doe.com"',
+    ]
+
+    for step, expected_sentence in zip(scenario.steps, expected_sentences):
+        assert_equals(type(step), Step)
+        assert_equals(step.sentence, expected_sentence)
