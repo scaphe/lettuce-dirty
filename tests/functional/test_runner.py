@@ -23,7 +23,7 @@ from nose.tools import assert_equals, with_setup, assert_raises
 from lettuce.fs import FeatureLoader
 from lettuce.core import Feature, fs, StepDefinition, RunController, ScenarioResultSummary
 from lettuce.terrain import world
-from lettuce import Runner
+from lettuce import Runner, step
 
 from tests.asserts import assert_lines
 from tests.asserts import assert_stderr
@@ -39,6 +39,7 @@ lettuce_dir = abspath(dirname(lettuce.__file__))
 ojoin = lambda *x: join(current_dir, 'output_features', *x)
 sjoin = lambda *x: join(current_dir, 'syntax_features', *x)
 fjoin = lambda *x: join(current_dir, 'failed_features', *x)
+tjoin = lambda *x: join(current_dir, 'tag_features', *x)
 lettuce_path = lambda *x: fs.relpath(join(lettuce_dir, *x))
 
 call_line = StepDefinition.__call__.im_func.func_code.co_firstlineno + 5
@@ -51,6 +52,9 @@ def syntax_feature_name(name):
 
 def failed_feature_name(name):
     return fjoin(name, "%s.feature" % name)
+
+def tag_feature_name(name):
+    return tjoin(name, "%s.feature" % name)
 
 @with_setup(prepare_stderr)
 def test_try_to_import_terrain():
@@ -1032,7 +1036,7 @@ def test_commented_scenario():
 def test_blank_step_hash_value():
     "syntax checking: Blank in step hash column = empty string"
 
-    from lettuce import step
+    
 
     @step('ignore step')
     def append_2_more(step):
@@ -1057,8 +1061,8 @@ def test_blank_step_hash_value():
     )
 
 class MockPrevResultPersister(object):
-    def __init__(self, initial_results_list):
-        self.initial_results_list = initial_results_list
+    def __init__(self, initial_results_list = None):
+        self.initial_results_list = initial_results_list or {}
         self.final_results_list = None
     def read_previous_results(self):
         return self.initial_results_list
@@ -1068,8 +1072,6 @@ class MockPrevResultPersister(object):
 @with_setup(prepare_stdout)
 def test_syntax_check_only():
     "syntax checking: Show a list of all steps that do not have matching functions, don't actually run any steps"
-
-    from lettuce import step
 
     @step('matching step')
     def append_2_more(step):
@@ -1092,8 +1094,6 @@ def test_syntax_check_only():
 @with_setup(prepare_stdout)
 def test_gather_failed_test_ids():
     "failed test checking: Test that gathers details on which tests (scenarios) have failed"
-
-    from lettuce import step
 
     @step('working step')
     def append_2_more(step):
@@ -1122,8 +1122,6 @@ def test_gather_failed_test_ids():
 @with_setup(prepare_stdout)
 def test_gather_second_pass_failed_test_ids():
     "failed test checking: Test that gathers not_run and which tests (scenarios) have failed on second run"
-
-    from lettuce import step
 
     @step('working step')
     def append_2_more(step):
@@ -1159,8 +1157,6 @@ def test_gather_second_pass_failed_test_ids():
 def test_gather_third_pass_failed_test_ids():
     "failed test checking: Test that gathers not_run and which tests (scenarios) have failed on second run"
 
-    from lettuce import step
-
     @step('working step')
     def append_2_more(step):
         pass
@@ -1194,8 +1190,6 @@ def test_gather_third_pass_failed_test_ids():
 def test_scenario_outlines_with_failed_only():
     "failed test checking: Test that works with scenario outlines if only some outlines fail"
 
-    from lettuce import step
-
     @step('I have entered')
     def append_2_more(step):
         pass
@@ -1227,8 +1221,6 @@ def test_scenario_outlines_with_failed_only():
 def test_scenario_outlines_with_failed_only_second_run():
     "failed test checking: Test that works with scenario outlines if only some outlines fail - second run"
 
-    from lettuce import step
-
     @step('I have entered')
     def append_2_more(step):
         pass
@@ -1259,3 +1251,74 @@ def test_scenario_outlines_with_failed_only_second_run():
     assert_equals(res[2].status, ScenarioResultSummary.FAILED)
     assert_equals(res[3].status, ScenarioResultSummary.NOT_RUN)
     assert_equals(res[4].status, ScenarioResultSummary.FAILED)
+
+def test_run_only_scenarios_tagged():
+    "Test that only scenarios that have the right tags on them get run"
+
+    world.colours = []
+    
+    @step('Running "(.*)" scenario')
+    def keep_colours(step, colour):
+        world.colours.append(colour)
+
+    filename = tag_feature_name('all_colours')
+    persister = MockPrevResultPersister()
+    
+    # Check all are run if no tags given
+    run_controller = RunController(persister)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Make sure tags don't corrupt the name of the scenarios or the feature
+    assert_equals("Test tags with multiple tagged steps", runner.feature_for_test.name)
+    assert_equals("red scenario", runner.feature_for_test.scenarios[0].name)
+    assert_equals("blue scenario", runner.feature_for_test.scenarios[1].name)
+    # Check the actual tags associated with everything are what we expect
+    assert_equals(["primary", "purple", "orange"], runner.feature_for_test.tags)
+    assert_equals(["red", "primary", "purple", "orange"], runner.feature_for_test.scenarios[0].tags)
+    assert_equals(["blue", "primary", "purple", "orange"], runner.feature_for_test.scenarios[1].tags)
+    assert_equals(["red", "blue", "primary", "purple", "orange"], runner.feature_for_test.scenarios[2].tags)
+    # Check what actually got run
+    assert_equals(["red", "blue", "purple", "black"], world.colours)
+    
+    # Only run red - so runs red and purple (red+blue)
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["@red"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["red", "purple"], world.colours)
+    
+    # Run all except red (which includes purple)
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["~@red"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["blue", "black"], world.colours)
+    
+    # Run red AND blue - so runs purple
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["@red,@blue"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["purple"], world.colours)
+    
+    # Run red AND blue OR black - so runs purple and black
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["@red,@blue", "@black"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["purple", "black"], world.colours)
+    
+    # Run red AND NOT blue - so runs red only
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["@red,~@blue"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["red"], world.colours)
+    
+    # Only run primary (which should include everything)
+    world.colours = []
+    run_controller = RunController(persister, tags_to_run=["@primary"])
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    assert_equals(["red", "blue", "purple", "black"], world.colours)
+    

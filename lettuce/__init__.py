@@ -77,6 +77,7 @@ class Runner(object):
         self.verbosity = verbosity
         self.scenarios = scenarios and map(int, scenarios.split(",")) or None
         self.run_controller = run_controller
+        self.feature_for_test = None
 
         sys.path.remove(base_path)
 
@@ -126,6 +127,7 @@ class Runner(object):
         try:
             for filename in features_files:
                 feature = Feature.from_file(filename)
+                self.feature_for_test = feature
                 results.append(feature.run(self.run_controller, self.scenarios))
         except exceptions.LettuceSyntaxError, e:
             sys.stderr.write(e.msg)

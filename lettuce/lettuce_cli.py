@@ -22,9 +22,7 @@ import optparse
 import lettuce
 from lettuce.core import RunController, PrevResultPersister
 
-
-def main(args=sys.argv[1:]):
-    base_path = os.path.join(os.path.dirname(os.curdir), 'features')
+def create_runner(args, base_path):
     parser = optparse.OptionParser(
         usage="%prog or type %prog -h (--help) for help",
         version=lettuce.version
@@ -57,6 +55,12 @@ def main(args=sys.argv[1:]):
                       default=".lettuceids",
                       help='Filename to keep ids of tests that failed last time, default is .lettuceids, set to None to disable')
 
+    parser.add_option("--tags",
+                      action="append",
+                      dest="tags_to_run",
+                      default=[],
+                      help='Comma separated list of tags, run if any found, multiple uses of this argument mean logical AND')
+
     parser.add_option("--with-xunit",
                       dest="enable_xunit",
                       action="store_true",
@@ -70,7 +74,7 @@ def main(args=sys.argv[1:]):
                       help='Write JUnit XML to this file. Defaults to '
                       'lettucetests.xml')
 
-    options, args = parser.parse_args()
+    options, args = parser.parse_args(args)
     if args:
         base_path = os.path.abspath(args[0])
 
@@ -83,12 +87,17 @@ def main(args=sys.argv[1:]):
     if "None" == filename:  # Else there is no way to disable writing ids to file
         filename = None
     persister = PrevResultPersister(filename)
-    run_controller = RunController(persister, options.only_run_failed, options.only_syntax_check)
+    run_controller = RunController(persister, options.only_run_failed, options.only_syntax_check, options.tags_to_run)
     runner = lettuce.Runner(base_path, scenarios=options.scenarios,
                             verbosity=options.verbosity,
                             enable_xunit=options.enable_xunit,
                             xunit_filename=options.xunit_file,
                             run_controller = run_controller)
+    return runner
+
+def main(args=sys.argv[1:]):
+    base_path = os.path.join(os.path.dirname(os.curdir), 'features')
+    runner = create_runner(args, base_path)
 
     result = runner.run()
     if not result or result.steps != result.steps_passed:

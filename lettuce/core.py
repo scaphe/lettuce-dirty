@@ -518,11 +518,15 @@ class PrevResultPersister(object):
             f.close()
         
 class RunController(object):
-    def __init__(self, prev_result_persister=None, only_run_failed=False, only_syntax_check=False):
+    def __init__(self, prev_result_persister=None, only_run_failed=False, only_syntax_check=False, tags_to_run=None):
         self.scenario_id_counter = 0
         self.only_run_failed = only_run_failed
         self.only_syntax_check = only_syntax_check
         self.prev_result_persister = prev_result_persister
+        self.tags_to_run = []
+        if tags_to_run:
+            for t in tags_to_run:
+                self.tags_to_run.append(t.replace("@",""))
         if only_run_failed:
             assert prev_result_persister!=None, "Must have persister if running only failed"
             self.previous_results = prev_result_persister.read_previous_results()
@@ -547,6 +551,20 @@ class RunController(object):
                     return False
                 else:
                     print "Previously step "+str(scenario_id_counter)+" failed, so re-running"
+        # Check tags
+        if len(self.tags_to_run) > 0:
+            for check_tags in self.tags_to_run:
+                #print "Checking "+check_tags+" is in "+str(scenario.tags)
+                full_match = True
+                for check_tag in check_tags.split(","):
+                    if check_tag[0] == "~":
+                        if check_tag[1:] in scenario.tags:
+                            full_match =False
+                    elif not check_tag in scenario.tags:
+                        full_match = False
+                if full_match:
+                    return True
+            return False
         return True
 
     def finished(self, totals):
@@ -759,11 +777,10 @@ class Scenario(object):
         return "\n".join([(u" " * self.table_indentation) + line for line in lines]) + '\n'
 
     @classmethod
-    def from_string(new_scenario, string, with_file=None, original_string=None, language=None):
+    def from_string(new_scenario, string, tags=None, with_file=None, original_string=None, language=None):
         """ Creates a new scenario from string"""
 
         lines = strings.get_stripped_lines(string, ignore_lines_starting_with='#')
-        tags, lines = strings.steal_tags_from_lines(lines)
 
         # ignoring comments
         string = "\n".join(lines)
@@ -794,7 +811,7 @@ class Scenario(object):
             with_file=with_file,
             original_string=original_string,
             language=language,
-            tags=tags
+            tags=tags or []
         )
 
         return scenario
@@ -868,7 +885,7 @@ class Feature(object):
     def from_string(new_feature, string, with_file=None, language=None):
         """Creates a new feature from string"""
         lines = strings.get_stripped_lines(string, ignore_lines_starting_with='#')
-        tags, lines = strings.steal_tags_from_lines(lines)
+        tags = []
         if not language:
             language = Language()
 
@@ -893,7 +910,8 @@ class Feature(object):
                 name = matched.groups()[0].strip()
                 break
 
-            lines.pop(0)
+            line = lines.pop(0)
+            strings.steal_tags_from_line(line, tags)
 
         feature = new_feature(name=name,
                               remaining_lines=lines,
@@ -928,20 +946,37 @@ class Feature(object):
 
         description = u""
 
+        tags_array = []
+        first_tags = []
         if not re.search("^" + scenario_prefix, joined):
             description = parts[0]
+            first_tags, description_array = strings.steal_tags_from_lines(description.split("\n"))
+            description = u"\n".join(description_array)
             parts.pop(0)
-
+        tags_array.append(first_tags)
+        
         scenario_strings = [
             u"%s: %s" % (self.language.first_of_scenario, s) for s in parts if s.strip()
         ]
+        tmp = []
+        for s in scenario_strings:
+            split_lines = s.split("\n")
+            tags, minus_tags = strings.steal_tags_from_lines(split_lines)
+            tmp.append(u"\n".join(minus_tags))
+            tags_array.append(tags)
+        scenario_strings = tmp
+
         kw = dict(
             original_string=original_string,
             with_file=with_file,
             language=self.language
         )
 
-        scenarios = [Scenario.from_string(s, **kw) for s in scenario_strings]
+        scenarios = []
+        for s in scenario_strings:
+            scenario_tags = tags_array[0] + self.tags
+            tags_array.pop(0)
+            scenarios.append(Scenario.from_string(s, scenario_tags, **kw))
         return scenarios, description
 
     def run(self, run_controller=None, scenarios=None, ignore_case=True):

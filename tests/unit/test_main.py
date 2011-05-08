@@ -15,6 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 import lettuce
+from lettuce import lettuce_cli
 import lettuce.fs
 from nose.tools import assert_equals
 from mox import Mox
@@ -58,3 +59,18 @@ def test_terrain_import_exception():
 
     finally:
         mox.UnsetStubs()
+
+def test_arument_parsing():
+    "arguments to control what tags are to be run"
+    base_path = ""
+    # Check no args means can run all tags
+    args = []
+    runner = lettuce_cli.create_runner(args, base_path)
+    controller = runner.run_controller
+    assert_equals(False, controller.only_run_failed)
+    assert_equals([], controller.tags_to_run)
+    # Check multiple tag arguments end up in array nicely
+    args = ["--tags", "one,two", "--tags", "three,four,five", "--tags", "six"]
+    runner = lettuce_cli.create_runner(args, base_path)
+    controller = runner.run_controller
+    assert_equals(["one,two", "three,four,five", "six"], controller.tags_to_run)
