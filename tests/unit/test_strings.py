@@ -295,3 +295,19 @@ def test_parse_hashes_allow_empty():
     assert_equals(keys, got_keys)
     assert_equals(dicts, got_dicts)
 
+def test_steal_right_tags():
+    tags = []
+    rc = strings.steal_tags_from_line("  @red, @blue", tags)
+    assert_equals(["red", "blue"], tags)
+    assert_equals(rc, True)
+    
+    tags = []
+    rc = strings.steal_tags_from_line("  @red Something that could be a scenario description line @blue", tags)
+    assert_equals([], tags)
+    assert_equals(rc, False)
+    
+    lines=["first line with zero tags", "@nice @tags-only, @indeed", "@starting with something taggish", "having a @tag in the middle", "or at @end"]
+    orig_lines = lines[:]
+    tags, non_tag_lines = strings.steal_tags_from_lines(lines)
+    assert_equals(["nice", "tags-only", "indeed"], tags)
+    assert_equals(len(non_tag_lines), len(orig_lines)-1)

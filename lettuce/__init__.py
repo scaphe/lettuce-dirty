@@ -20,6 +20,7 @@ release = 'barium'
 
 import os
 import sys
+import traceback
 from datetime import datetime
 
 from lettuce import fs
@@ -132,9 +133,11 @@ class Runner(object):
         except exceptions.LettuceSyntaxError, e:
             sys.stderr.write(e.msg)
             failed = True
-        except Exception, e:
+        except:
+            e = sys.exc_info()[1]
             print "Died with "+str(e)
-            sys.stderr.write(exceptions.traceback.format_exc(e))
+            traceback.print_exc()
+            failed = True
 
         finally:
             if failed:

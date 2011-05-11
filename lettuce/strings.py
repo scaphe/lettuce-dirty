@@ -149,18 +149,26 @@ def parse_multiline(lines):
             multilines.append(line)
     return u'\n'.join(multilines)
 
+
+tag_stealing_regex = re.compile(ur"\s*\@(?P<name>[\w_-]+)[\s,]*", re.U)
 def steal_tags_from_line(possible_tag_line, tags):
     """returns true if this line contained some tags"""
-    regex = re.compile(ur'(^|\s+|[,])[@](?P<name>[\w_-]+)[\s,]*', re.U)
-    found = regex.search(possible_tag_line)
+    found = tag_stealing_regex.search(possible_tag_line)
+    found_tags = []
     if found or len(possible_tag_line.strip()) == 0:
         while found:
             tagname = found.group('name')
-            tags.append(tagname)
+            found_tags.append(tagname)
 
             possible_tag_line = possible_tag_line.replace("@" + tagname, '')
-            found = regex.search(possible_tag_line)
-        return True
+            found = tag_stealing_regex.search(possible_tag_line)
+
+        possible_tag_line = possible_tag_line.replace(" ", '')
+        possible_tag_line = possible_tag_line.replace(",", '')
+        
+        if len(possible_tag_line)==0:
+            for t in found_tags: tags.append(t)
+            return True
     return False
 
 def steal_tags_from_lines(lines):
@@ -179,16 +187,9 @@ def steal_tags_from_lines(lines):
     tags = []
 
     for possible_tag_line in lines:
-        found = regex.search(possible_tag_line)
-        if found or len(possible_tag_line.strip()) == 0:
+        is_tag_line = steal_tags_from_line(possible_tag_line, tags)
+        if is_tag_line:
             lines.remove(possible_tag_line)
-
-            while found:
-                tagname = found.group('name')
-                tags.append(tagname)
-
-                possible_tag_line = possible_tag_line.replace("@" + tagname, '')
-                found = regex.search(possible_tag_line)
     return tags, lines
 
 

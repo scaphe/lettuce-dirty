@@ -19,6 +19,8 @@ import re
 import codecs
 import unicodedata
 import pickle
+import sys
+import traceback
 from copy import deepcopy
 from lettuce import strings
 from lettuce import languages
@@ -115,9 +117,11 @@ class StepDefinition(object):
         try:
             ret = self.function(self.step, *args, **kw)
             self.step.passed = True
-        except Exception, e:
+        except:
+            e = sys.exc_info()[1]
             if debug_exceptions:
                 print "Failed with "+str(e)
+                traceback.print_exc()
             self.step.failed = True
             self.step.why = ReasonToFail(e)
             raise e
@@ -427,11 +431,13 @@ class Step(object):
             except NoDefinitionFound, e:
                 steps_undefined.append(e.step)
 
-            except Exception, e:
+            except:
+                e = sys.exc_info()[1]
                 if debug_exceptions:
                     print "Failed with "+str(e)
+                    traceback.print_exc()
                 steps_failed.append(step)
-                reasons_to_fail.append(step.why)
+                reasons_to_fail.append(step.why or ReasonToFail(e))
 
             finally:
                 all_steps.append(step)
@@ -889,6 +895,8 @@ class Feature(object):
         if not language:
             language = Language()
 
+        while strings.steal_tags_from_line(lines[0], tags):
+            lines.pop(0)
         found = len(re.findall(r'%s:[ ]*\w+' % language.feature, "\n".join(lines), re.U))
 
         if found > 1:
@@ -900,9 +908,8 @@ class Feature(object):
         elif found == 0:
             raise LettuceSyntaxError(
                 with_file,
-                'Features must have a name. e.g: "Feature: This is my name"'
+                'Features must have a name that start with a word letter (not an odd character). e.g: "Feature: This is my name"'
             )
-
 
         while lines:
             matched = re.search(r'%s:(.*)' % language.feature, lines[0], re.I)
@@ -911,7 +918,6 @@ class Feature(object):
                 break
 
             line = lines.pop(0)
-            strings.steal_tags_from_line(line, tags)
 
         feature = new_feature(name=name,
                               remaining_lines=lines,
@@ -1027,7 +1033,7 @@ class ScenarioResult(object):
 
     @property
     def passed(self):
-        return not self.not_run and (self.total_steps is len(self.steps_passed))
+        return not self.not_run and (self.total_steps is len(self.steps_passed) + len(self.steps_skipped))
 
     @property
     def failed(self):

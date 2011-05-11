@@ -694,7 +694,21 @@ def test_feature_without_name():
 
     assert_stderr_lines(
         'Syntax error at: %s\n'
-        'Features must have a name. e.g: "Feature: This is my name"\n'
+        'Features must have a name that start with a word letter (not an odd character). e.g: "Feature: This is my name"\n'
+        % filename
+    )
+
+@with_setup(prepare_stderr)
+def test_feature_with_invalid_name():
+    "syntax checking: Fail on features with an invalid name"
+
+    filename = syntax_feature_name('feature_with_invalid_name')
+    runner = Runner(filename)
+    assert_raises(SystemExit, runner.run)
+
+    assert_stderr_lines(
+        'Syntax error at: %s\n'
+        'Features must have a name that start with a word letter (not an odd character). e.g: "Feature: This is my name"\n'
         % filename
     )
 
@@ -1320,5 +1334,35 @@ def test_run_only_scenarios_tagged():
     run_controller = RunController(persister, tags_to_run=["@primary"])
     runner = Runner(filename, verbosity=0, run_controller = run_controller)
     runner.run()
+    assert_equals(["red", "blue", "purple", "black"], world.colours)
+
+def test_nasty_tags_in_descriptions():
+    "Test that can parse correctly when people are putting tags into descriptions etc"
+
+    world.colours = []
+    
+    @step('Running "(.*)" scenario')
+    def keep_colours(step, colour):
+        world.colours.append(colour)
+
+    filename = tag_feature_name('nasty_tag_filled')
+    persister = MockPrevResultPersister()
+    
+    # Check all are run if no tags given
+    run_controller = RunController(persister)
+    runner = Runner(filename, verbosity=0, run_controller = run_controller)
+    runner.run()
+    # Make sure tags don't corrupt the name of the scenarios or the feature
+    assert_equals("Test with multiple @tagged steps", runner.feature_for_test.name)
+    # Only first line counts as name of scenario
+    assert_equals("red scenario with tags in the scenario @name",
+                  runner.feature_for_test.scenarios[0].name)
+    assert_equals("blue scenario", runner.feature_for_test.scenarios[1].name)
+    # Check the actual tags associated with everything are what we expect
+    assert_equals(["primary", "purple", "orange"], runner.feature_for_test.tags)
+    assert_equals(["red", "primary", "purple", "orange"], runner.feature_for_test.scenarios[0].tags)
+    assert_equals(["blue", "primary", "purple", "orange"], runner.feature_for_test.scenarios[1].tags)
+    assert_equals(["red", "blue", "primary", "purple", "orange"], runner.feature_for_test.scenarios[2].tags)
+    # Check what actually got run, nothing bad happened we hope from our parsing of the tags and lines
     assert_equals(["red", "blue", "purple", "black"], world.colours)
     
